@@ -30,16 +30,18 @@ func LoadImagesFromFolderPath(state *store.AppState, folderPath string) error {
 	}
 	sort.Strings(paths)
 
-	if len(paths) == 0 {
-		return nil
-	}
+	return LoadImagesFromPaths(state, paths)
+}
 
+func LoadImagesFromPaths(state *store.AppState, paths []string) error {
+	sort.Strings(paths)
 	state.RawImages = make([]image.Image, 0, len(paths))
 	state.ThumbnailImagesSrc = make([]image.Image, 0)
 	state.FrameNames = make([]string, 0, len(paths))
 	state.FrameOrder = make([]int, 0, len(paths))
 	state.Offsets = make([]models.FrameOffset, len(paths))
 	state.CurrentActiveFrame = 0
+	state.SourceFolder = ""
 
 	for _, path := range paths {
 		img, err := processor.LoadImageFile(path)
@@ -54,6 +56,9 @@ func LoadImagesFromFolderPath(state *store.AppState, folderPath string) error {
 		)
 		state.FrameNames = append(state.FrameNames, filepath.Base(path))
 		state.FrameOrder = append(state.FrameOrder, len(state.RawImages)-1)
+		if state.SourceFolder == "" {
+			state.SourceFolder = filepath.Dir(path)
+		}
 	}
 
 	state.ResetCropBox()
@@ -142,6 +147,26 @@ func CreatePauseSelect(state *store.AppState) *widget.Select {
 	)
 	pauseSelect.SetSelected("Short")
 	return pauseSelect
+}
+
+func CreateExportQualitySelect(state *store.AppState) *widget.Select {
+	qualitySelect := widget.NewSelect(
+		[]string{"Original", "Large", "Medium", "Small"},
+		func(v string) {
+			switch v {
+			case "Original":
+				state.ExportScale = 1.0
+			case "Large":
+				state.ExportScale = 0.75
+			case "Medium":
+				state.ExportScale = 0.5
+			case "Small":
+				state.ExportScale = 0.35
+			}
+		},
+	)
+	qualitySelect.SetSelected("Large")
+	return qualitySelect
 }
 
 func CreateBounceCheck(state *store.AppState) *widget.Check {

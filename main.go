@@ -1,13 +1,16 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -50,6 +53,16 @@ func main() {
 		canvas.NewRectangle(theme.PrimaryColor()),
 		canvas.NewRectangle(theme.PrimaryColor()),
 	}
+	loupeImage := canvas.NewImageFromImage(image.NewRGBA(image.Rect(0, 0, 1, 1)))
+	loupeImage.FillMode = canvas.ImageFillStretch
+	loupeImage.Resize(fyne.NewSize(180, 180))
+	loupeImage.Hide()
+
+	loupeBorder := canvas.NewRectangle(color.Transparent)
+	loupeBorder.StrokeColor = color.RGBA{255, 255, 255, 240}
+	loupeBorder.StrokeWidth = 2
+	loupeBorder.Resize(fyne.NewSize(180, 180))
+	loupeBorder.Hide()
 
 	imageWorkspace := container.NewWithoutLayout()
 	imageWorkspace.Add(crosshairX)
@@ -58,6 +71,8 @@ func main() {
 	for _, h := range cropHandles {
 		imageWorkspace.Add(h)
 	}
+	imageWorkspace.Add(loupeImage)
+	imageWorkspace.Add(loupeBorder)
 
 	interactionLayer := models.NewInteractionLayer()
 	interactionLayer.Resize(fyne.NewSize(models.CanvasSize, models.CanvasSize))
@@ -66,8 +81,48 @@ func main() {
 	var activeCropHandle string
 	statusLabel := widget.NewLabel(state.StatusMessage)
 	statusLabel.Wrapping = fyne.TextWrapWord
+	updateLoupe := func(pos fyne.Position, show bool) {
+		if !show || !state.HasFrames() || activeCropHandle != "" {
+			loupeImage.Hide()
+			loupeBorder.Hide()
+			return
+		}
 
-	interactionLayer.OnDrag = func(delta fyne.Delta) {
+		loupeFrame := ui.GenerateLoupeFrame(
+			state.RawImages,
+			state.Offsets,
+			state.CurrentActiveFrame,
+			pos,
+			72,
+			180,
+		)
+		loupeImage.Image = loupeFrame
+
+		x := pos.X + 24
+		y := pos.Y + 24
+		if x+180 > models.CanvasSize {
+			x = pos.X - 204
+		}
+		if y+180 > models.CanvasSize {
+			y = pos.Y - 204
+		}
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+
+		loupePos := fyne.NewPos(x, y)
+		loupeImage.Move(loupePos)
+		loupeBorder.Move(loupePos)
+		loupeImage.Show()
+		loupeBorder.Show()
+		loupeImage.Refresh()
+		loupeBorder.Refresh()
+	}
+
+	interactionLayer.OnDrag = func(delta fyne.Delta, pos fyne.Position) {
 		if activeCropHandle != "" {
 			switch activeCropHandle {
 			case "tl":
@@ -84,6 +139,7 @@ func main() {
 				state.CropMaxY += delta.DY
 			}
 			ui.UpdateCropBoxGraphic(cropBoxOutline, cropHandles, state)
+			updateLoupe(pos, false)
 			return
 		}
 
@@ -102,6 +158,7 @@ func main() {
 			))
 			canvasImages[state.CurrentActiveFrame].Refresh()
 		}
+		updateLoupe(pos, true)
 	}
 
 	interactionLayer.OnRight = func(position fyne.Position) {
@@ -117,6 +174,10 @@ func main() {
 	}
 	interactionLayer.OnMouseUp = func() {
 		activeCropHandle = ""
+		updateLoupe(fyne.Position{}, false)
+	}
+	interactionLayer.OnMouseOut = func() {
+		updateLoupe(fyne.Position{}, false)
 	}
 
 	myWindow.Canvas().SetOnTypedKey(func(k *fyne.KeyEvent) {
@@ -154,6 +215,7 @@ func main() {
 	loopCountSelect := ui.CreateLoopCountSelect(state)
 	bounceCheck := ui.CreateBounceCheck(state)
 	pauseSelect := ui.CreatePauseSelect(state)
+	exportQualitySelect := ui.CreateExportQualitySelect(state)
 
 	maxSafeCropButton := widget.NewButton("Max Safe Crop", func() {
 		if !state.HasFrames() {
@@ -263,11 +325,45 @@ func main() {
 		thumbnailStrip.Refresh()
 	}
 
-	loadButton := widget.NewButton("Open Target Folder containing Frames", func() {
-		folderPath, err := zenity.SelectFile(
-			zenity.Directory(),
-			zenity.Title("Open folder containing frames"),
-		)
+	imageFilters := zenity.FileFilters{
+		{Name: "Images", Patterns: []string{"*.jpg", "*.jpeg", "*.png"}, CaseFold: true},
+	}
+
+	reloadWorkspace := func() {
+		imageWorkspace.Objects = nil
+		canvasImages = make([]*canvas.Image, 0, len(state.RawImages))
+		for _, img := range state.RawImages {
+			canvasImage := canvas.NewImageFromImage(img)
+			canvasImage.FillMode = canvas.ImageFillContain
+			canvasImage.Resize(fyne.NewSize(models.CanvasSize, models.CanvasSize))
+			canvasImages = append(canvasImages, canvasImage)
+			imageWorkspace.Add(canvasImage)
+		}
+		imageWorkspace.Add(crosshairX)
+		imageWorkspace.Add(crosshairY)
+		imageWorkspace.Add(cropBoxOutline)
+		for _, h := range cropHandles {
+			imageWorkspace.Add(h)
+		}
+		imageWorkspace.Add(loupeImage)
+		imageWorkspace.Add(loupeBorder)
+		imageWorkspace.Add(interactionLayer)
+		imageWorkspace.Refresh()
+
+		ui.RenderLayers(canvasImages, cropBoxOutline, cropHandles, crosshairX, crosshairY, state)
+		refreshThumbnails()
+	}
+
+	loadButton := widget.NewButton("Open Images", func() {
+		options := []zenity.Option{
+			zenity.Title("Open wigglegram frames"),
+			imageFilters,
+		}
+		if state.SourceFolder != "" {
+			options = append(options, zenity.Filename(state.SourceFolder))
+		}
+
+		paths, err := zenity.SelectFileMultiple(options...)
 		if err != nil {
 			if err != zenity.ErrCanceled {
 				fynedialog.ShowError(err, myWindow)
@@ -276,7 +372,7 @@ func main() {
 		}
 
 		go func() {
-			err = ui.LoadImagesFromFolderPath(state, folderPath)
+			err = ui.LoadImagesFromPaths(state, paths)
 			if err != nil {
 				fyne.Do(func() {
 					fynedialog.ShowError(err, myWindow)
@@ -286,53 +382,20 @@ func main() {
 
 			if !state.HasFrames() {
 				fyne.Do(func() {
-					statusLabel.SetText("No supported images found in folder.")
+					statusLabel.SetText("No supported images selected.")
 				})
 				return
 			}
 
 			fyne.Do(func() {
-				imageWorkspace.Objects = nil
-				canvasImages = make([]*canvas.Image, 0, len(state.RawImages))
-				for _, img := range state.RawImages {
-					canvasImage := canvas.NewImageFromImage(img)
-					canvasImage.FillMode = canvas.ImageFillContain
-					canvasImage.Resize(fyne.NewSize(models.CanvasSize, models.CanvasSize))
-					canvasImages = append(canvasImages, canvasImage)
-					imageWorkspace.Add(canvasImage)
-				}
-				imageWorkspace.Add(crosshairX)
-				imageWorkspace.Add(crosshairY)
-				imageWorkspace.Add(cropBoxOutline)
-				for _, h := range cropHandles {
-					imageWorkspace.Add(h)
-				}
-				imageWorkspace.Add(interactionLayer)
-				imageWorkspace.Refresh()
-
-				ui.RenderLayers(canvasImages, cropBoxOutline, cropHandles, crosshairX, crosshairY, state)
-				refreshThumbnails()
+				reloadWorkspace()
 				statusLabel.SetText(fmt.Sprintf("%d frame(s) loaded successfully", len(state.RawImages)))
 			})
 		}()
 	})
 
-	exportButton := widget.NewButton("Compile HD Wiggle GIF", func() {
+	compileAndSaveGIF := func(filename string) {
 		if !state.HasFrames() {
-			return
-		}
-
-		filename, err := zenity.SelectFileSave(
-			zenity.Title("Save wigglegram GIF"),
-			zenity.FileFilters{
-				{Name: "GIF image", Patterns: []string{"*.gif"}, CaseFold: true},
-			},
-			zenity.ConfirmOverwrite(),
-		)
-		if err != nil {
-			if err != zenity.ErrCanceled {
-				fynedialog.ShowError(err, myWindow)
-			}
 			return
 		}
 		if !strings.HasSuffix(strings.ToLower(filename), ".gif") {
@@ -350,6 +413,7 @@ func main() {
 				state.Offsets,
 				state.CropMinX, state.CropMinY, state.CropMaxX, state.CropMaxY,
 				state.GIFLoopCount, state.GIFFrameDelay,
+				state.ExportScale,
 			)
 
 			fyne.Do(func() {
@@ -380,9 +444,59 @@ func main() {
 			}
 
 			fyne.Do(func() {
-				statusLabel.SetText("GIF compilation saved successfully!")
+				statusLabel.SetText(fmt.Sprintf("GIF saved: %s", filepath.Base(filename)))
 			})
 		}()
+	}
+
+	saveButton := widget.NewButton("Save", func() {
+		if !state.HasFrames() {
+			return
+		}
+		if state.SourceFolder == "" {
+			fynedialog.ShowError(fmt.Errorf("no source folder available"), myWindow)
+			return
+		}
+
+		filename, err := randomGIFPath(state.SourceFolder)
+		if err != nil {
+			fynedialog.ShowError(err, myWindow)
+			return
+		}
+
+		compileAndSaveGIF(filename)
+	})
+
+	saveAsButton := widget.NewButton("Save As", func() {
+		if !state.HasFrames() {
+			return
+		}
+
+		defaultPath := state.SourceFolder
+		if defaultPath != "" {
+			defaultPath = filepath.Join(defaultPath, randomGIFName())
+		}
+
+		options := []zenity.Option{
+			zenity.Title("Save wigglegram GIF"),
+			zenity.FileFilters{
+				{Name: "GIF image", Patterns: []string{"*.gif"}, CaseFold: true},
+			},
+			zenity.ConfirmOverwrite(),
+		}
+		if defaultPath != "" {
+			options = append(options, zenity.Filename(defaultPath))
+		}
+
+		filename, err := zenity.SelectFileSave(options...)
+		if err != nil {
+			if err != zenity.ErrCanceled {
+				fynedialog.ShowError(err, myWindow)
+			}
+			return
+		}
+
+		compileAndSaveGIF(filename)
 	})
 
 	animationSettings := container.NewVBox(
@@ -390,6 +504,8 @@ func main() {
 		speedSelect,
 		widget.NewLabel("GIF Repetitions"),
 		loopCountSelect,
+		widget.NewLabel("Export Quality"),
+		exportQualitySelect,
 		bounceCheck,
 		widget.NewLabel("Pause At Ends"),
 		pauseSelect,
@@ -434,7 +550,7 @@ func main() {
 		widget.NewLabel("Animation Settings"),
 		animationAccordion,
 		widget.NewSeparator(),
-		exportButton,
+		container.NewGridWithColumns(2, saveButton, saveAsButton),
 		statusLabel,
 	)
 
@@ -458,4 +574,69 @@ func main() {
 
 	myWindow.SetContent(split)
 	myWindow.ShowAndRun()
+}
+
+func randomGIFPath(folder string) (string, error) {
+	for i := 0; i < 30; i++ {
+		path := filepath.Join(folder, randomGIFName())
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find an unused random filename")
+}
+
+func randomGIFName() string {
+	adjectives := []string{
+		"turbo",
+		"cosmic",
+		"spicy",
+		"velvet",
+		"neon",
+		"crystal",
+		"wobbly",
+		"golden",
+		"midnight",
+		"electric",
+		"lucky",
+		"rapid",
+		"glitter",
+		"moonlit",
+		"fuzzy",
+		"atomic",
+	}
+	nouns := []string{
+		"pancakes",
+		"sloths",
+		"comets",
+		"waffles",
+		"rockets",
+		"sunbeams",
+		"spinners",
+		"fireflies",
+		"popcorn",
+		"highlights",
+		"skylines",
+		"orbiters",
+		"wiggles",
+		"sprinkles",
+		"drifters",
+		"snapshots",
+	}
+
+	return fmt.Sprintf("%s-%s.gif", randomWord(adjectives), randomWord(nouns))
+}
+
+func randomWord(words []string) string {
+	if len(words) == 0 {
+		return "wiggle"
+	}
+
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(words))))
+	if err != nil {
+		return words[time.Now().UnixNano()%int64(len(words))]
+	}
+
+	return words[n.Int64()]
 }

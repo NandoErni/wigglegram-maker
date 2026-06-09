@@ -16,10 +16,12 @@ type FrameOffset struct {
 type InteractionLayer struct {
 	widget.BaseWidget
 
-	OnDrag      func(delta fyne.Delta)
+	OnDrag      func(delta fyne.Delta, pos fyne.Position)
 	OnRight     func(pos fyne.Position)
 	OnMouseDown func(pos fyne.Position)
 	OnMouseUp   func()
+	OnMouseMove func(pos fyne.Position)
+	OnMouseOut  func()
 }
 
 func (i *InteractionLayer) CreateRenderer() fyne.WidgetRenderer {
@@ -29,7 +31,7 @@ func (i *InteractionLayer) CreateRenderer() fyne.WidgetRenderer {
 
 func (i *InteractionLayer) Dragged(e *fyne.DragEvent) {
 	if i.OnDrag != nil {
-		i.OnDrag(e.Dragged)
+		i.OnDrag(e.Dragged, e.Position)
 	}
 }
 
@@ -52,6 +54,20 @@ func (i *InteractionLayer) MouseDown(e *desktop.MouseEvent) {
 func (i *InteractionLayer) MouseUp(e *desktop.MouseEvent) {
 	if i.OnMouseUp != nil {
 		i.OnMouseUp()
+	}
+}
+
+func (i *InteractionLayer) MouseIn(*desktop.MouseEvent) {}
+
+func (i *InteractionLayer) MouseMoved(e *desktop.MouseEvent) {
+	if i.OnMouseMove != nil {
+		i.OnMouseMove(e.Position)
+	}
+}
+
+func (i *InteractionLayer) MouseOut() {
+	if i.OnMouseOut != nil {
+		i.OnMouseOut()
 	}
 }
 

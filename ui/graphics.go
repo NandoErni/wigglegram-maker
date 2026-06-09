@@ -2,7 +2,9 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
+	"math"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -150,6 +152,104 @@ func GeneratePreviewFrame(
 	)
 
 	return previewCanvasObj
+}
+
+func GenerateLoupeFrame(
+	rawImages []image.Image,
+	offsets []models.FrameOffset,
+	activeFrame int,
+	center fyne.Position,
+	sampleSize int,
+	outputSize int,
+) image.Image {
+	if len(rawImages) == 0 || len(offsets) == 0 {
+		return image.NewRGBA(image.Rect(0, 0, 1, 1))
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, outputSize, outputSize))
+	halfSample := float32(sampleSize) / 2
+	scale := float32(sampleSize) / float32(outputSize)
+
+	for y := 0; y < outputSize; y++ {
+		for x := 0; x < outputSize; x++ {
+			wx := center.X - halfSample + (float32(x)+0.5)*scale
+			wy := center.Y - halfSample + (float32(y)+0.5)*scale
+
+			c := sampleCanvasColor(rawImages, offsets, 0, wx, wy)
+			if activeFrame > 0 && activeFrame < len(rawImages) {
+				active := sampleCanvasColor(rawImages, offsets, activeFrame, wx, wy)
+				c = blendRGBA(c, active, 0.65)
+			}
+
+			dst.SetRGBA(x, y, c)
+		}
+	}
+
+	drawLoupeCrosshair(dst)
+	return dst
+}
+
+func sampleCanvasColor(
+	rawImages []image.Image,
+	offsets []models.FrameOffset,
+	frameIndex int,
+	wx float32,
+	wy float32,
+) color.RGBA {
+	if frameIndex < 0 || frameIndex >= len(rawImages) || frameIndex >= len(offsets) {
+		return color.RGBA{20, 20, 20, 255}
+	}
+
+	img := rawImages[frameIndex]
+	minX, minY, maxX, maxY := processor.CanvasImageRect(img, offsets[frameIndex])
+	if wx < minX || wx >= maxX || wy < minY || wy >= maxY {
+		return color.RGBA{20, 20, 20, 255}
+	}
+
+	bounds := img.Bounds()
+	sx := bounds.Min.X + int(math.Floor(float64((wx-minX)/(maxX-minX)*float32(bounds.Dx()))))
+	sy := bounds.Min.Y + int(math.Floor(float64((wy-minY)/(maxY-minY)*float32(bounds.Dy()))))
+	if sx < bounds.Min.X {
+		sx = bounds.Min.X
+	}
+	if sy < bounds.Min.Y {
+		sy = bounds.Min.Y
+	}
+	if sx >= bounds.Max.X {
+		sx = bounds.Max.X - 1
+	}
+	if sy >= bounds.Max.Y {
+		sy = bounds.Max.Y - 1
+	}
+
+	return color.RGBAModel.Convert(img.At(sx, sy)).(color.RGBA)
+}
+
+func blendRGBA(base color.RGBA, overlay color.RGBA, alpha float64) color.RGBA {
+	return color.RGBA{
+		R: uint8(float64(base.R)*(1-alpha) + float64(overlay.R)*alpha),
+		G: uint8(float64(base.G)*(1-alpha) + float64(overlay.G)*alpha),
+		B: uint8(float64(base.B)*(1-alpha) + float64(overlay.B)*alpha),
+		A: 255,
+	}
+}
+
+func drawLoupeCrosshair(img *image.RGBA) {
+	bounds := img.Bounds()
+	cx := bounds.Dx() / 2
+	cy := bounds.Dy() / 2
+	c := color.RGBA{255, 60, 60, 230}
+
+	for x := cx - 10; x <= cx+10; x++ {
+		if x >= bounds.Min.X && x < bounds.Max.X {
+			img.SetRGBA(x, cy, c)
+		}
+	}
+	for y := cy - 10; y <= cy+10; y++ {
+		if y >= bounds.Min.Y && y < bounds.Max.Y {
+			img.SetRGBA(cx, y, c)
+		}
+	}
 }
 
 func abs(v float32) float32 {

@@ -12,6 +12,7 @@ type AppState struct {
 	FrameNames         []string
 	FrameOrder         []int
 	Offsets            []models.FrameOffset
+	SourceFolder       string
 
 	CurrentActiveFrame int
 	IsPlayingPreview   bool
@@ -25,6 +26,7 @@ type AppState struct {
 	BounceMode        bool
 	PauseFrames       int
 	LockTransparency  bool
+	ExportScale       float32
 
 	CrosshairX float32
 	CrosshairY float32
@@ -39,6 +41,7 @@ func NewAppState() *AppState {
 		FrameNames:         make([]string, 0),
 		FrameOrder:         make([]int, 0),
 		Offsets:            make([]models.FrameOffset, 0),
+		SourceFolder:       "",
 		CurrentActiveFrame: 0,
 		IsPlayingPreview:   false,
 		CropMinX:           models.DefaultCropMinX,
@@ -51,6 +54,7 @@ func NewAppState() *AppState {
 		BounceMode:         models.DefaultBounceMode,
 		PauseFrames:        models.DefaultPauseFrames,
 		LockTransparency:   false,
+		ExportScale:        0.75,
 		CrosshairX:         300,
 		CrosshairY:         300,
 		StatusMessage:      "Welcome. Import folder sequence files to begin editing adjustments.",

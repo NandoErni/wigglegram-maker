@@ -124,6 +124,7 @@ func GenerateGIF(
 	offsets []models.FrameOffset,
 	cropMinX, cropMinY, cropMaxX, cropMaxY float32,
 	gifLoopCount, gifFrameDelay int,
+	exportScale float32,
 ) (*gif.GIF, error) {
 	if len(rawImages) == 0 || len(loopOrder) == 0 {
 		return nil, nil
@@ -132,6 +133,34 @@ func GenerateGIF(
 	outGif := &gif.GIF{
 		LoopCount: gifLoopCount,
 	}
+
+	var targetRect image.Rectangle
+	for _, index := range loopOrder {
+		if index >= 0 && index < len(rawImages) && index < len(offsets) {
+			targetRect, _ = MapCanvasCropToSource(
+				rawImages[index],
+				offsets[index].X,
+				offsets[index].Y,
+				cropMinX,
+				cropMinY,
+				cropMaxX,
+				cropMaxY,
+			)
+			break
+		}
+	}
+	if targetRect.Empty() {
+		return nil, nil
+	}
+	if exportScale <= 0 {
+		exportScale = 1
+	}
+	targetRect = image.Rect(
+		0,
+		0,
+		maxInt(1, int(math.Round(float64(float32(targetRect.Dx())*exportScale)))),
+		maxInt(1, int(math.Round(float64(float32(targetRect.Dy())*exportScale)))),
+	)
 
 	uniqueFrames := make(map[int]*image.Paletted)
 	for _, index := range loopOrder {
@@ -163,8 +192,21 @@ func GenerateGIF(
 			croppedFrame := image.NewRGBA(cropRect)
 			draw.Draw(croppedFrame, cropRect, img, sourcePoint, draw.Src)
 
-			palettedFrame := image.NewPaletted(cropRect, palette.Plan9)
-			draw.FloydSteinberg.Draw(palettedFrame, cropRect, croppedFrame, image.Point{})
+			if cropRect.Dx() != targetRect.Dx() || cropRect.Dy() != targetRect.Dy() {
+				normalizedFrame := image.NewRGBA(targetRect)
+				xdraw.CatmullRom.Scale(
+					normalizedFrame,
+					targetRect,
+					croppedFrame,
+					croppedFrame.Bounds(),
+					xdraw.Over,
+					nil,
+				)
+				croppedFrame = normalizedFrame
+			}
+
+			palettedFrame := image.NewPaletted(targetRect, palette.Plan9)
+			draw.FloydSteinberg.Draw(palettedFrame, targetRect, croppedFrame, image.Point{})
 
 			mu.Lock()
 			uniqueFrames[index] = palettedFrame
@@ -184,4 +226,11 @@ func GenerateGIF(
 	}
 
 	return outGif, nil
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

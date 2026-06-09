@@ -4,13 +4,17 @@ A small desktop app for making Nishika N8000-style wigglegrams from photo frame 
 
 ## Features
 
-- Load a folder containing any number of `.jpg`, `.jpeg`, or `.png` files
+- Select the exact `.jpg`, `.jpeg`, or `.png` frames you want to import
 - Align frames by dragging the active image
 - Adjust the crop box with corner handles
 - Fit the crop to the largest shared image area after alignment
 - Reorder frames with the scrollable thumbnail strip
 - Preview the animation and export an animated GIF
-- Uses the operating system's native folder picker
+- Choose export quality to trade image size for smaller GIF files
+- Use the drag loupe for more precise frame alignment
+- Save directly back to the source folder with a fun random filename
+- Use Save As for a custom output path
+- Uses the operating system's native file pickers
 
 ## Requirements
 
@@ -50,9 +54,11 @@ go run .
 
 ## Usage
 
-Open a folder containing the frames. The app loads all supported image files in sorted filename order, so naming them in sequence is recommended.
+Select the frames you want to import. The app loads the selected files in sorted filename order, so naming them in sequence is recommended.
 
-Use the thumbnail buttons to choose the active frame, then drag in the canvas to align it. Drag a crop corner to resize the crop box, use Max Safe Crop to fit the largest area covered by every shifted frame, right-click to move the reference point, and use the export button to save the GIF.
+Use the thumbnail buttons to choose the active frame, then drag in the canvas to align it. A magnified loupe appears while dragging to help with fine alignment. Drag a crop corner to resize the crop box, use Max Safe Crop to fit the largest area covered by every shifted frame, right-click to move the reference point, choose an export quality, and save the GIF.
+
+`Save` writes to the source image folder with a random playful filename. `Save As` lets you choose a custom path and starts in the source folder when available.
 
 ## Platform Notes
 
